@@ -1,6 +1,6 @@
 # MapBoxGPX
 
-App creates a marker and line animation on MapBox's 3d map backgrounds.  Implementation of connecting a bluetooth enabled bike trainer is in progress to virtually ride real world terrain.
+App creates a marker and line animation on MapBox's 3d satellite backgrounds.  Implementation of connecting a bluetooth enabled bike trainer is in progress to virtually ride real world terrain.
 
 Program uses the Python Flask library.  Run in local test environment with Python app.py on the command line.
 
