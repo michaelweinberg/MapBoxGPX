@@ -175,7 +175,7 @@ await map.once('idle');
 // The total animation duration, in milliseconds
 // Left variable below in for reference, but no longer used while integrating bike trainer data
 //var animationDuration = 20000;
-const cameraAltitude = 1200;
+const cameraAltitude = 900;
 // Use the https://turfjs.org/ library to calculate line distances and
 // sample the line at a given percentage with the turf.along function.
 const path = turf.lineString(pinRoute);
@@ -221,13 +221,20 @@ const lngLat = {
 	lat: alongPath[1]
 	};
 
+const alongPathCamera = turf.along(path, pathDistance * animationPhase*.85)
+.geometry.coordinates;
+const lngLatCam = {
+	lng: alongPath[0],
+	lat: alongPath[1]
+	};
+
 const camera = map.getFreeCameraOptions();
  
 // set the position and altitude of the camera
 camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
 {
-	lng: alongPath[0]-.005*Math.sin(360*animationPhase*.3),
-	lat: alongPath[1]-.001*Math.cos(360*animationPhase*.3)
+	lng: alongPathCamera[0],
+	lat: alongPathCamera[1]
 	},
 cameraAltitude
 );
@@ -248,7 +255,8 @@ map.queryTerrainElevation(lngLat, { exaggerated: false })
 );
  
 // Update the popup altitude value and marker location
-popup.setHTML('Altitude: ' + parseInt(elevation*3.28084) + 'ft<br/>' + 'Dist:' + marker.getLngLat());
+distanceTraveled = animationPhase*distance
+popup.setHTML('Altitude: ' + parseInt(elevation*3.28084) + 'ft<br/>' + 'Dist: ' + distanceTraveled.toLocaleString() + "mi");
 marker.setLngLat(lngLat);
  
 // Reduce the visible length of the line by using a line-gradient to cutoff the line
