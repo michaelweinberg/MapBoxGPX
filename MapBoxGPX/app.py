@@ -7,7 +7,7 @@ app = flask.Flask(__name__, static_url_path='',static_folder='static')
 @app.route('/',methods=['GET','POST'])
 def my_maps():
 
-	mapbox_access_token = 'pk.eyJ1Ijoiam9obmhqb3JkYW4iLCJhIjoiY2tsOWg0ZTAxMm85MzMwdDc0d2kzY2xjMyJ9.iBomyJC6VGy3jeqgFaPKdw'
+	mapbox_access_token = '[Paste Token Here]'
 
 	return render_template('index.html',
 		mapbox_access_token=mapbox_access_token)
