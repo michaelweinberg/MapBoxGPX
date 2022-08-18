@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Query terrain elevation</title>
+<meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.9.2/mapbox-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mapbox/togeojson@0.16.0/togeojson.min.js"></script>
+
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100% }
+.upload-container {
+position: absolute;
+top: 10px;
+left: 10px;
+z-index: 1;
+}
+ 
+.bluetooth-container {
+position: absolute;
+top: 45px;
+left: 10px;
+z-index: 1;
+}
+
+.distance-container {
+position: absolute;
+top: 80px;
+left: 10px;
+z-index: 1;
+}
+
+.bluetooth-container, .upload-container, .distance-container > * {
+background-color: rgba(0, 0, 0, 0.5);
+color: #fff;
+font-size: 11px;
+line-height: 18px;
+display: block;
+margin: 0;
+padding: 5px 10px;
+border-radius: 3px;
+}
+
+</style>
+
+</head>
+
+<body>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="https://docs.mapbox.com/mapbox-gl-js/assets/routes.js"></script>
+
+<div id="map"></div>
+	<div class="upload-container">
+		<input id="contentFile" type="file" accept=".gpx" />
+	</div>
+	<div id="distance" class="distance-container"></div>
+	<div class="bluetooth-container">
+		 <button onclick="Trainer()">Connect Trainer</button> 
+	</div>
+
+<script>
+
+// Get Target GPX file
+  document.getElementById('contentFile').onchange = function(evt) {
+        try {
+            let files = evt.target.files;
+            if (!files.length) {
+                alert('No file selected!');
+                return;
+            }
+            let file = files[0];
+            let reader = new FileReader();
+            const self = this;
+            reader.onload = (event) => {
+			var gpxFile = new DOMParser().parseFromString(event.target.result, "text/xml");
+			jsonFile = toGeoJSON.gpx(gpxFile);
+
+//Start Mapbox Script, Access Token in Python app.py
+
+mapboxgl.accessToken = "{{ mapbox_access_token }}";
+(async () => {
+	const map = new mapboxgl.Map({
+	container: 'map',
+	zoom: 15,
+	center: [-122.401294, 47.584145],
+	pitch: 30,
+	bearing: 0,
+	style: 'mapbox://styles/mapbox/satellite-streets-v11',
+	interactive: false,
+	hash: false
+	});
+
+const distanceContainer = document.getElementById('distance');
+
+// Start downloading the route data, and wait for map load to occur in parallel
+// Edits below satisfy promise to wait for map to load.  Doesn't work without below, but pinRouteGeojson is no longer used so shouldn't be needed.
+const [pinRouteGeojson] = await Promise.all([
+	//fetch(
+		jsonFile,		
+		//'https://docs.mapbox.com/mapbox-gl-js/assets/route-pin.geojson'
+		//).then((response) => response.json()),
+	map.once('load')
+	]);
+//Create pinRoute
+const pinRoute = jsonFile.features[0].geometry.coordinates;
+const cameraRoute = routes.camera;
+
+// Create the marker and popup that will display the elevation queries
+const popup = new mapboxgl.Popup({ closeButton: false });
+const marker = new mapboxgl.Marker({
+	color: 'red',
+	scale: 0.8,
+	draggable: false,
+	pitchAlignment: 'auto',
+	rotationAlignment: 'auto'
+	})
+	.setLngLat(pinRoute[0])
+	.setPopup(popup)
+	.addTo(map)
+	.togglePopup();
+ 
+// Add a line feature and layer. This feature will get updated as we progress the animation
+map.addSource('line', {
+	type: 'geojson',
+	// Line metrics is required to use the 'line-progress' property
+	lineMetrics: true,
+	data: jsonFile
+	});
+map.addLayer({
+	type: 'line',
+	source: 'line',
+	id: 'line',
+	paint: {
+	'line-color': 'rgba(0,0,0,0)',
+	'line-width': 5
+	},
+layout: {
+	'line-cap': 'round',
+	'line-join': 'round'
+	}
+});
+
+ 
+// Add some fog in the background
+// Feature commented out, slows things down and doesn't add much but might want later
+//map.setFog({
+//'range': [-0.5, 2],
+//'color': 'white',
+//'horizon-blend': 0.2
+//});
+ 
+// Add a sky layer over the horizon
+map.addLayer({
+	'id': 'sky',
+	'type': 'sky',
+	'paint': {
+	'sky-type': 'atmosphere',
+	'sky-atmosphere-sun': [0.0, 90.0],
+	'sky-atmosphere-sun-intensity': 15
+	}
+});
+ 
+// Add terrain source, with slight exaggeration
+	map.addSource('mapbox-dem', {
+	'type': 'raster-dem',
+	'url': 'mapbox://mapbox.terrain-rgb',
+	'tileSize': 512,
+	'maxzoom': 22
+	});
+map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+ 
+await map.once('idle');
+// The total animation duration, in milliseconds
+// Left variable below in for reference, but no longer used while integrating bike trainer data
+//var animationDuration = 20000;
+const cameraAltitude = 1200;
+// Use the https://turfjs.org/ library to calculate line distances and
+// sample the line at a given percentage with the turf.along function.
+const path = turf.lineString(pinRoute);
+const alongCamera = turf.lineString(pinRoute);
+// Get the total line distance
+const value = document.createElement('pre');
+const turfoptions = {units: 'miles'};
+const distance = turf.length(path,turfoptions);
+const distancem = turf.length(path)*1000;
+value.textContent = `Total distance: ${distance.toLocaleString()}mi`;
+distanceContainer.appendChild(value);
+//end total line distance
+const pathDistance = turf.lineDistance(path);
+const cameraRouteDistance = turf.lineDistance(
+turf.lineString(cameraRoute));
+let start;
+var animationDuration = parseInt(distancem/(0.0067)) //total meters divide by meters/millisecond
+// watts will be used to determine speed
+let watts = 0;
+// wattValue comes from bluetooth bike trainer in Trainer() function
+let wattValue = 0; 
+function frame(time) {
+if (!start) start = time;
+//code in progress: first step below, replace animationPhase with distance/total distance, just use speed based on watts to test (no slope factor)
+//_________________
+watts = wattValue;
+// commented out speed variable using watts below to continue testing, but eventually need more physics to get speed from wattValue data
+//let speed = watts / 10; //fake speed in mph
+let speed = 100
+const animationPhase = (time-start)*speed / (distance*1000*60*60);
+//Prior duration of animation variable below commented out which was based on time not distance traveled.
+//const animationPhase = (time - start) / animationDuration;
+if (animationPhase > 1) {
+	return;
+	}
+ 
+// Get the new latitude and longitude by sampling along the path
+//below determines time to go from one coordinate to the next, so actually need distance between those two coordinates to know what speed should be then adjust that speed dynamically.  Speed needs to be adjusted more frequently than time between each coordinate.
+const alongPath = turf.along(path, pathDistance * animationPhase)
+.geometry.coordinates;
+const lngLat = {
+	lng: alongPath[0],
+	lat: alongPath[1]
+	};
+
+const camera = map.getFreeCameraOptions();
+ 
+// set the position and altitude of the camera
+camera.position = mapboxgl.MercatorCoordinate.fromLngLat(
+{
+	lng: alongPath[0]-.005*Math.sin(360*animationPhase*.3),
+	lat: alongPath[1]-.001*Math.cos(360*animationPhase*.3)
+	},
+cameraAltitude
+);
+ 
+// tell the camera to look at a point along the route
+camera.lookAtPoint({
+	lng: alongPath[0],
+	lat: alongPath[1]
+	});
+ 
+map.setFreeCameraOptions(camera);
+ 
+// Sample the terrain elevation. We round to an integer value to
+// prevent showing a lot of digits during the animation
+const elevation = Math.floor(
+// Do not use terrain exaggeration to get actual meter values
+map.queryTerrainElevation(lngLat, { exaggerated: false })
+);
+ 
+// Update the popup altitude value and marker location
+popup.setHTML('Altitude: ' + parseInt(elevation*3.28084) + 'ft<br/>' + 'Dist:' + marker.getLngLat());
+marker.setLngLat(lngLat);
+ 
+// Reduce the visible length of the line by using a line-gradient to cutoff the line
+// animationPhase is a value between 0 and 1 that reprents the progress of the animation
+map.setPaintProperty('line', 'line-gradient', [
+	'step',
+	['line-progress'],
+	'red',
+	animationPhase,
+	'rgba(255, 0, 0, 0)'
+	]);
+
+ 
+window.requestAnimationFrame(frame);
+}
+ 
+window.requestAnimationFrame(frame);
+})();
+
+//end
+            };
+            reader.readAsText(file);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+// Bluetooth Bike Trainer Functions In This Section
+
+function Trainer() {
+if ("bluetooth" in navigator) {
+navigator.bluetooth.requestDevice({ filters: [{
+    services: [0x1826], 
+}] 
+}).then(function(device) {
+    console.log('Name: ' + device.name);
+    return device.gatt.connect();
+})
+  .then(function(server) {
+    console.log('Getting Service...');
+    return server.getPrimaryService(0x1826);
+  })
+  .then(function(service) {
+    console.log('Getting Characteristic...');
+    myService = service;
+    return service.getCharacteristic(0x2AD2);
+  })
+  .then(function(characteristic) {
+    myPower = characteristic;
+    return myPower.startNotifications().then(function (_) {
+      console.log('> Notifications started');
+      myPower.addEventListener('characteristicvaluechanged', function (e) {
+var dataView = e.target.value;
+var wattValue = dataView.getInt16(6,true);
+var cadValue = dataView.getUint16(2,true);
+});
+   });
+  }).then(function() {
+myService.getCharacteristic(0x2AD9)
+  .then(function(characteristic) {
+    myControl = characteristic;
+    myControl.startNotifications().then(function (_) {
+      console.log('> Notifications started');
+      myControl.addEventListener('characteristicvaluechanged', function (e) {
+var dataViewControl = e.target.value;
+});
+  });
+})
+})
+.catch(function(error) {
+    console.log("Something went wrong. " + error);
+});
+} else {
+window.alert("Web Bluetooth Not Supported In This Browser.  Supported Browsers Include: PC: Chrome & Edge (latest updates), MacOS: Chrome (latest update) Iphone: Bluefy, Android: Chrome, Android (latest updates)  If you are using one of these listed browsers, check for version updates.  Thank you for playing!");
+}
+};
+
+function SetPermission() {
+var bufferHandshake = new ArrayBuffer(1);
+var viewHandshake = new DataView(bufferHandshake);
+viewHandshake.setInt8(0,0);
+myControl.writeValueWithResponse(bufferHandshake)
+};
+
+function SetSlope() {
+var bufferSimulation = new ArrayBuffer(7);
+var viewSimulation = new DataView(bufferSimulation);
+viewSimulation.setInt8(0,17,true); //control code
+viewSimulation.setInt16(1,0,true); //wind speed
+viewSimulation.setInt16(3,slopeValue*100,true); //slope
+viewSimulation.setUint8(5,0,true); //rolling resistance
+viewSimulation.setUint8(6,0,true); //wind resistance
+myControl.writeValue(bufferSimulation);
+};
+
+</script>
+ 
+</body>
+</html>
